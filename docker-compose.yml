@@ -1,0 +1,36 @@
+services:
+  whisper:
+    image: hwdsl2/whisper-server:latest
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3-turbo}
+      - WHISPER_LANGUAGE=cs
+      - WHISPER_API_KEY=none
+      # Image default is 2; use the number of performance cores (tune with `make bench`)
+      - WHISPER_THREADS=${WHISPER_THREADS:-6}
+      # 1 = greedy decoding, much faster than the default beam of 5
+      - WHISPER_BEAM=${WHISPER_BEAM:-1}
+    volumes:
+      - ./data:/var/lib/whisper
+
+  watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.watcher
+    image: whisper-watcher:local
+    container_name: whisper-watcher
+    restart: unless-stopped
+    depends_on:
+      - whisper
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3-turbo}
+      - WHISPER_LANGUAGE=cs
+      - WHISPER_API_KEY=none
+    volumes:
+      - ./input:/input
+      - ./output:/output
+      - ./watcher.sh:/watcher.sh:ro
+    command: ["/bin/sh", "/watcher.sh"]

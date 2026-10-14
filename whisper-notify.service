@@ -1,0 +1,13 @@
+[Unit]
+Description=Local STT - transcription progress notifications
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=@TARGET@/notify.sh
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=graphical-session.target
