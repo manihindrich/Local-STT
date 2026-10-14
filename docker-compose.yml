@@ -6,13 +6,20 @@ services:
     ports:
       - "127.0.0.1:9000:9000"
     environment:
-      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3-turbo}
+      # large-v3 is markedly more accurate for Czech than large-v3-turbo, but with beam 5 ~5x slower than turbo with beam 1
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
       - WHISPER_LANGUAGE=cs
       - WHISPER_API_KEY=none
       # Image default is 2; use the number of performance cores (tune with `make bench`)
       - WHISPER_THREADS=${WHISPER_THREADS:-6}
-      # 1 = greedy decoding, much faster than the default beam of 5
-      - WHISPER_BEAM=${WHISPER_BEAM:-1}
+      # Beam search width; 1 = greedy (faster, more errors)
+      - WHISPER_BEAM=${WHISPER_BEAM:-5}
+      # Image default is 1024; long recordings (e.g. a full day at 128 kbps) exceed it
+      - WHISPER_MAX_UPLOAD_MB=4096
+      # Speaker labels in the output. Off by default: on noisy recordings the automatic
+      # mode over-splits speakers. -1 = detect the number of speakers automatically
+      - WHISPER_DIARIZATION=${WHISPER_DIARIZATION:-false}
+      - WHISPER_DIARIZE_NUM_SPEAKERS=${WHISPER_DIARIZE_NUM_SPEAKERS:--1}
     volumes:
       - ./data:/var/lib/whisper
 
@@ -26,11 +33,17 @@ services:
     depends_on:
       - whisper
     environment:
-      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3-turbo}
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
       - WHISPER_LANGUAGE=cs
       - WHISPER_API_KEY=none
+      # Sample text in the target language; sets punctuation and spelling style
+      - "WHISPER_PROMPT=Dobrý den. Tak jsme tady, můžeme začít? Ano, jasně – připravil jsem si pár poznámek."
+      # Transcript formatting (format.jq): speaker label, pause in seconds that starts a new line
+      - SPEAKER_LABEL=Speaker
+      - PARAGRAPH_GAP=3
     volumes:
       - ./input:/input
       - ./output:/output
       - ./watcher.sh:/watcher.sh:ro
+      - ./format.jq:/format.jq:ro
     command: ["/bin/sh", "/watcher.sh"]

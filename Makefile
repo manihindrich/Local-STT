@@ -1,4 +1,4 @@
-.PHONY: install install-notify uninstall-notify up down restart logs ps bench
+.PHONY: install install-notify uninstall-notify install-widget uninstall-widget up down restart logs ps bench
 
 # Install location; overridden by config.mk inside an installed copy
 DOCKER_DIR ?= /docker
@@ -6,11 +6,12 @@ PROJECT    ?= whisper
 -include config.mk
 
 TARGET := $(DOCKER_DIR)/$(PROJECT)
-FILES  := docker-compose.yml Dockerfile.watcher watcher.sh notify.sh whisper-notify.service Makefile README.md
+FILES  := docker-compose.yml Dockerfile.watcher watcher.sh format.jq notify.sh status.sh whisper-notify.service Makefile README.md
 DC     := docker compose --project-directory $(TARGET) -f $(TARGET)/docker-compose.yml
 
 UNIT_DIR := $(HOME)/.config/systemd/user
 UNIT     := whisper-notify.service
+WIDGET   := org.localstt.status
 
 API  := http://127.0.0.1:9000
 AUTH := -H 'Authorization: Bearer none'
@@ -18,8 +19,8 @@ AUTH := -H 'Authorization: Bearer none'
 # make bench BENCH_FILE=sample.mp3 BENCH_THREADS="6 8" BENCH_MODEL=medium
 BENCH_FILE    ?= bench.wav
 BENCH_THREADS ?= 4 6 8 14
-BENCH_BEAM    ?= 1
-BENCH_MODEL   ?= large-v3-turbo
+BENCH_BEAM    ?= 5
+BENCH_MODEL   ?= large-v3
 BENCH_RUNS    ?= 2
 
 # Copy the template to $(TARGET); config is overwritten, input/output/data are kept
@@ -27,7 +28,8 @@ install:
 	@test "$(CURDIR)" != "$(abspath $(TARGET))" || { echo "Already in $(TARGET); run install from the template"; exit 1; }
 	mkdir -p $(TARGET)/input $(TARGET)/output $(TARGET)/data
 	cp $(FILES) $(TARGET)/
-	chmod +x $(TARGET)/notify.sh
+	cp -r widget $(TARGET)/
+	chmod +x $(TARGET)/notify.sh $(TARGET)/status.sh
 	printf 'DOCKER_DIR := %s\nPROJECT    := %s\n' '$(DOCKER_DIR)' '$(PROJECT)' > $(TARGET)/config.mk
 	@echo "Installed to $(TARGET)"
 
@@ -44,6 +46,20 @@ uninstall-notify:
 	-systemctl --user disable --now $(UNIT)
 	rm -f $(UNIT_DIR)/$(UNIT)
 	systemctl --user daemon-reload
+
+# Tray widget (KDE Plasma 6): icon shown only while transcribing, status in the tooltip
+install-widget:
+	@test -f $(TARGET)/status.sh || { echo "$(TARGET) is not installed; run make install"; exit 1; }
+	@tmp=$$(mktemp -d) && cp -r $(TARGET)/widget $$tmp/ && \
+	  sed -i 's|@TARGET@|$(TARGET)|g' $$tmp/widget/contents/ui/main.qml && \
+	  { kpackagetool6 -t Plasma/Applet --upgrade $$tmp/widget >/dev/null 2>&1 || \
+	    kpackagetool6 -t Plasma/Applet --install $$tmp/widget; }; \
+	  rc=$$?; rm -rf $$tmp; exit $$rc
+	systemctl --user restart plasma-plasmashell.service
+
+uninstall-widget:
+	-kpackagetool6 -t Plasma/Applet --remove $(WIDGET)
+	systemctl --user restart plasma-plasmashell.service
 
 up:
 	@test -f $(TARGET)/docker-compose.yml || { echo "$(TARGET) is not installed; run make install"; exit 1; }

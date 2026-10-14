@@ -1,6 +1,7 @@
 #!/bin/sh
 # Watches /input for audio files, transcribes them via the whisper API and
-# moves the audio plus its .txt transcript to /output.
+# moves the audio plus its .txt transcript (formatted by format.jq) and the
+# raw .json response to /output.
 set -u
 
 INPUT_DIR="/input"
@@ -8,9 +9,12 @@ OUTPUT_DIR="/output"
 EVENTS="$OUTPUT_DIR/.events"
 BASE_URL="http://whisper:9000"
 API_URL="$BASE_URL/v1/audio/transcriptions"
-MODEL="${WHISPER_MODEL:-large-v3-turbo}"
+MODEL="${WHISPER_MODEL:-large-v3}"
 LANGUAGE="${WHISPER_LANGUAGE:-cs}"
 API_KEY="${WHISPER_API_KEY:-none}"
+PROMPT="${WHISPER_PROMPT:-}"
+SPEAKER_LABEL="${SPEAKER_LABEL:-Speaker}"
+PARAGRAPH_GAP="${PARAGRAPH_GAP:-3}"
 AUDIO_RE='\.(mp3|wav|m4a|mp4|flac|ogg)$'
 
 mkdir -p "$INPUT_DIR" "$OUTPUT_DIR"
@@ -40,7 +44,8 @@ process() {
   NAME=$(printf '%s' "$FILENAME" | tr '|' '_')
   SIZE=$(stat -c %s "$FILEPATH")
   TXT="$OUTPUT_DIR/${FILENAME%.*}.txt"
-  PART="$OUTPUT_DIR/.${FILENAME%.*}.txt.part"
+  JSON="$OUTPUT_DIR/${FILENAME%.*}.json"
+  PART="$OUTPUT_DIR/.${FILENAME%.*}.part"
 
   echo "Processing: $FILENAME"
   event "START|$NAME|$SIZE|$(( $(queue_count) - 1 ))"
@@ -51,15 +56,19 @@ process() {
       -F "file=@$FILEPATH" \
       -F "model=$MODEL" \
       -F "language=$LANGUAGE" \
-      -F 'response_format=text' \
-      -o "$PART"; then
-    mv "$PART" "$TXT"
+      -F 'response_format=verbose_json' \
+      --form-string "prompt=$PROMPT" \
+      -o "$PART.json" \
+    && jq -r -f /format.jq --arg label "$SPEAKER_LABEL" --argjson gap "$PARAGRAPH_GAP" \
+      "$PART.json" > "$PART.txt"; then
+    mv "$PART.json" "$JSON"
+    mv "$PART.txt" "$TXT"
     mv "$FILEPATH" "$OUTPUT_DIR/$FILENAME"
     ELAPSED=$(( $(date +%s) - START ))
     echo "Done in ${ELAPSED}s: $FILENAME"
     event "DONE|$NAME|$SIZE|$ELAPSED|$(stat -c %s "$TXT")|$(queue_count)"
   else
-    rm -f "$PART"
+    rm -f "$PART.json" "$PART.txt"
     echo "Transcription failed, file left in /input: $FILENAME" >&2
     event "ERROR|$NAME|$SIZE|$(( $(queue_count) - 1 ))"
   fi
